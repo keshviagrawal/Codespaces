@@ -67,7 +67,7 @@ static void execute_atomic_command(char** tokens, bool is_first, bool is_last, i
     if (input_file) {
         int fd = open(input_file, O_RDONLY);
         if (fd == -1) {
-            fprintf(stderr, "No such file or directory\n");
+            fprintf(stderr, "No such file or directory!\n");
             exit(EXIT_FAILURE);
         }
         dup2(fd, STDIN_FILENO);
