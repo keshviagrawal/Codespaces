@@ -312,6 +312,75 @@ bool validate_atomic_command(char* tokens[], int start_idx, int end_idx) {
     return true;
 }
 
+// // The main parsing function.
+// bool parse_input(char* line) {
+//     if (line == NULL) return false;
+
+//     char* line_copy = strdup(line);
+//     if (!line_copy) {
+//         perror("strdup");
+//         return false;
+//     }
+
+//     trim_whitespace(line_copy);
+//     if (strlen(line_copy) == 0) {
+//         free(line_copy);
+//         return true;
+//     }
+
+//     char* tokens[MAX_TOKENS];
+//     int token_count = 0;
+//     tokenize_input(line_copy, tokens, &token_count);
+
+//     if (token_count == 0) {
+//         free(line_copy);
+//         return true;
+//     }
+
+//     int current_cmd_start = 0;
+    
+//     // The main loop that iterates over command groups.
+//     for (int i = 0; i < token_count; i++) {
+//         char* current_token = tokens[i];
+
+//         if (strcmp(current_token, ";") == 0 || strcmp(current_token, "|") == 0) {
+//             // Validate the command group before the operator.
+//             if (!validate_atomic_command(tokens, current_cmd_start, i - 1)) {
+//                 free(line_copy);
+//                 return false;
+//             }
+//             // An operator cannot be at the end of the input (checked later)
+//             // or followed by another operator.
+//             if (i + 1 >= token_count || is_valid_operator(tokens[i+1])) {
+//                 free(line_copy);
+//                 return false;
+//             }
+//             current_cmd_start = i + 1; // Start of the next command group.
+//         } else if (strcmp(current_token, "&") == 0) {
+//             if (i != token_count - 1) { // & must be the very last token
+//                 free(line_copy);
+//                 return false;
+//             }
+//         } else {
+//             // Every token must be valid.
+//             if (!is_command_or_arg(current_token) && !is_valid_operator(current_token)) {
+//                  free(line_copy);
+//                  return false;
+//             }
+//         }
+//     }
+    
+//     // Validate the final command group.
+//     if (!validate_atomic_command(tokens, current_cmd_start, token_count - 1)) {
+//         free(line_copy);
+//         return false;
+//     }
+
+//     free(line_copy);
+//     return true;
+// }
+
+
 // The main parsing function.
 bool parse_input(char* line) {
     if (line == NULL) return false;
@@ -338,42 +407,54 @@ bool parse_input(char* line) {
     }
 
     int current_cmd_start = 0;
-    
-    // The main loop that iterates over command groups.
+
     for (int i = 0; i < token_count; i++) {
         char* current_token = tokens[i];
 
-        if (strcmp(current_token, ";") == 0 || strcmp(current_token, "|") == 0) {
-            // Validate the command group before the operator.
+        if (strcmp(current_token, "|") == 0) {
+            // Validate the group before the pipe
             if (!validate_atomic_command(tokens, current_cmd_start, i - 1)) {
                 free(line_copy);
                 return false;
             }
-            // An operator cannot be at the end of the input (checked later)
-            // or followed by another operator.
+            // Pipe cannot be at start or end or adjacent to another operator
             if (i + 1 >= token_count || is_valid_operator(tokens[i+1])) {
                 free(line_copy);
                 return false;
             }
-            current_cmd_start = i + 1; // Start of the next command group.
-        } else if (strcmp(current_token, "&") == 0) {
-            if (i != token_count - 1) { // & must be the very last token
+            current_cmd_start = i + 1;
+        } else if (strcmp(current_token, ";") == 0 || strcmp(current_token, "&") == 0) {
+            // Validate the group before the separator
+            if (!validate_atomic_command(tokens, current_cmd_start, i - 1)) {
                 free(line_copy);
                 return false;
             }
+            // Allow separator at end (e.g., trailing ';' or '&')
+            if (i == token_count - 1) {
+                current_cmd_start = i + 1; // nothing follows
+                break;
+            }
+            // Next token must start a new command group (not operator or pipe)
+            if (is_valid_operator(tokens[i+1]) || strcmp(tokens[i+1], "|") == 0) {
+                free(line_copy);
+                return false;
+            }
+            current_cmd_start = i + 1;
         } else {
-            // Every token must be valid.
+            // Every token must be either a word or a valid operator
             if (!is_command_or_arg(current_token) && !is_valid_operator(current_token)) {
-                 free(line_copy);
-                 return false;
+                free(line_copy);
+                return false;
             }
         }
     }
-    
-    // Validate the final command group.
-    if (!validate_atomic_command(tokens, current_cmd_start, token_count - 1)) {
-        free(line_copy);
-        return false;
+
+    // Validate the final command group if any tokens remain after the last separator
+    if (current_cmd_start < token_count) {
+        if (!validate_atomic_command(tokens, current_cmd_start, token_count - 1)) {
+            free(line_copy);
+            return false;
+        }
     }
 
     free(line_copy);

@@ -382,6 +382,7 @@ bool get_reveal_path(const char* path_arg, char* prev_dir, const char* home_dir,
             fprintf(stderr, "No such directory!\n");
             return false;
         }
+        //printf("%s\n", prev_dir);
         strcpy(target_path_buffer, prev_dir);
     } else {
         // Assume it's a regular path

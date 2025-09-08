@@ -162,6 +162,9 @@
 #include "../include/reveal.h"
 #include "../include/log.h"
 #include "../include/input_redir.h"
+#include "../include/executor.h"
+
+bool is_interactive_mode = true;
 
 #define MAX_BUFFER_SIZE 4096
 
@@ -214,8 +217,13 @@ void display_prompt() {
     fflush(stdout); // Ensure the prompt is displayed immediately
 }
 
+// extern bool is_interactive_mode;
 
 int main() {
+
+    //is_interactive_mode = getenv("IS_INTERACTIVE_MODE") == NULL;
+    is_interactive_mode = isatty(STDIN_FILENO) && isatty(STDOUT_FILENO) && isatty(STDERR_FILENO);
+    
     char *line = NULL;
     size_t len = 0;
     
@@ -250,6 +258,8 @@ int main() {
         }
 
         line[strcspn(line, "\n")] = '\0';
+
+        check_background_jobs();
         
         if (strlen(line) == 0 || strspn(line, " \t\n\r") == strlen(line)) {
             continue;
@@ -276,6 +286,7 @@ int main() {
                     } 
                     // Check for the reveal command
                     else if (strcmp(tokens[0], "reveal") == 0) {
+                        // printf("%s\n", prev_dir);
                         reveal(&tokens[1], token_count - 1, &prev_dir, SHELL_HOME_DIR);
                         
                     }
@@ -290,7 +301,7 @@ int main() {
                         // NEW: If it's not a built-in command, execute it using a new function
                         // Note: This function will be implemented in a future file
                         // that handles sequential execution.
-                        execute_command_group(tokens, token_count);
+                        execute_command(tokens, token_count);
                     }
 
                     // TODO: Add logic for other commands here

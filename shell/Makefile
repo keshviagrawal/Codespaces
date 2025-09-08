@@ -19,7 +19,7 @@
 
 CC = gcc
 CFLAGS = -Wall -Wextra -std=c99
-SRCS = src/main.c src/parser.c src/hop.c src/reveal.c src/log.c src/input_redir.c
+SRCS = src/main.c src/parser.c src/hop.c src/reveal.c src/log.c src/input_redir.c src/executor.c
 OBJS = $(SRCS:.c=.o)
 TARGET = shell.out
 
