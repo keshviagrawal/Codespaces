@@ -453,6 +453,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include "../include/executor.h"
+// #include "../include/builtin.h"
 
 static void execute_single_command(char** tokens, bool run_in_background);
 static pid_t execute_pipe_group(char** tokens, int token_count, bool run_in_background, const char* command_name);
@@ -559,7 +560,8 @@ static void execute_single_command(char** tokens, bool run_in_background) {
             }
             in_fd = open(tokens[i+1], O_RDONLY);
             if (in_fd == -1) {
-                perror(tokens[i+1]);
+                // perror(tokens[i+1]);
+                fprintf(stderr, "No such file or directory!\n");
                 exit(1);
             }
             tokens[i] = NULL;
@@ -607,6 +609,10 @@ static void execute_single_command(char** tokens, bool run_in_background) {
 
     fprintf(stderr, "%s: Command not found\n", cmd_args[0]);
 
+
+
+
+
     if (in_fd != -1) {
         dup2(saved_stdin, STDIN_FILENO);
     }
@@ -617,6 +623,7 @@ static void execute_single_command(char** tokens, bool run_in_background) {
     close(saved_stdout);
 
     exit(1);
+
 }
 
 static pid_t execute_pipe_group(char** tokens, int token_count, bool run_in_background, const char* command_name) {

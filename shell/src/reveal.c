@@ -404,20 +404,48 @@ bool reveal(char** args, int num_args, char** prev_dir, const char* home_dir) {
     const char* path_arg = NULL;
 
     // First, check for too many arguments as per the requirement
+
+    // int non_flag_count = 0;
+    // for (int i = 0; i < num_args; i++) {
+    //     if (args[i][0] != '-') {
+    //         non_flag_count++;
+    //     }
+    // }
+
     int non_flag_count = 0;
     for (int i = 0; i < num_args; i++) {
-        if (args[i][0] != '-') {
+        if (strcmp(args[i], "-") == 0 || args[i][0] != '-') {
             non_flag_count++;
         }
     }
+
     if (non_flag_count > 1) {
         fprintf(stderr, "reveal: Invalid Syntax!\n");
         return false;
     }
 
     // Parse flags and identify the path argument
+
+    // for (int i = 0; i < num_args; i++) {
+    //     if (args[i][0] == '-') {
+    //         for (size_t j = 1; j < strlen(args[i]); j++) {
+    //             if (args[i][j] == 'a') {
+    //                 show_all = true;
+    //             } else if (args[i][j] == 'l') {
+    //                 line_by_line = true;
+    //             }
+    //         }
+    //     } else {
+    //         path_arg = args[i];
+    //     }
+    // }
+
     for (int i = 0; i < num_args; i++) {
-        if (args[i][0] == '-') {
+        if (strcmp(args[i], "-") == 0) {
+            // Treat single dash as previous-directory path argument
+            path_arg = args[i];
+        } else if (args[i][0] == '-') {
+            // Parse flags like -a, -l, -al
             for (size_t j = 1; j < strlen(args[i]); j++) {
                 if (args[i][j] == 'a') {
                     show_all = true;
