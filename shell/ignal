@@ -1,0 +1,68 @@
+[4mKILL[24m(1)                                           User Commands                                          [4mKILL[24m(1)
+
+[1mNAME[0m
+       kill - send a signal to a process
+
+[1mSYNOPSIS[0m
+       [1mkill [22m[options] <pid> [...]
+
+[1mDESCRIPTION[0m
+       The  default  signal for kill is TERM.  Use [1m-l [22mor [1m-L [22mto list available signals.  Particularly useful sig‐
+       nals include HUP, INT, KILL, STOP, CONT, and 0.  Alternate signals may be specified in  three  ways:  [1m-9[22m,
+       [1m-SIGKILL  [22mor  [1m-KILL[22m.  Negative PID values may be used to choose whole process groups; see the PGID column
+       in ps command output.  A PID of [1m-1 [22mis special; it indicates all processes except the kill process  itself
+       and init.
+
+[1mOPTIONS[0m
+       [1m<pid> [...][0m
+              Send signal to every <pid> listed.
+
+       [1m-<signal>[0m
+       [1m-s <signal>[0m
+       [1m--signal <signal>[0m
+              Specify the [1msignal [22mto be sent.  The signal can be specified by using name or number.  The behavior
+              of signals is explained in [1msignal[22m(7) manual page.
+
+       [1m-q[22m, [1m--queue [4m[22mvalue[0m
+              Use  [1msigqueue[22m(3)  rather  than  [1mkill[22m(2) and the value argument is used to specify an integer to be
+              sent with the signal. If the receiving process has installed a handler for this signal  using  the
+              SA_SIGINFO  flag  to [1msigaction[22m(2), then it can obtain this data via the si_value field of the sig‐
+              info_t structure.
+
+       [1m-l[22m, [1m--list [22m[[4msignal[24m]
+              List signal names.  This option has optional argument, which will convert signal number to  signal
+              name, or other way round.
+
+       [1m-L[22m, [1m--table[0m
+              List signal names in a nice table.
+
+       [1mNOTES  [22mYour  shell  (command line interpreter) may have a built-in kill command.  You may need to run the
+              command described here as /bin/kill to solve the conflict.
+
+[1mEXAMPLES[0m
+       [1mkill -9 -1[0m
+              Kill all processes you can kill.
+
+       [1mkill -l 11[0m
+              Translate number 11 into a signal name.
+
+       [1mkill -L[0m
+              List the available signal choices in a nice table.
+
+       [1mkill 123 543 2341 3453[0m
+              Send the default signal, SIGTERM, to all those processes.
+
+[1mSEE ALSO[0m
+       [1mkill[22m(2), [1mkillall[22m(1), [1mnice[22m(1), [1mpkill[22m(1), [1mrenice[22m(1), [1msignal[22m(7), [1msigqueue[22m(3), [1mskill[22m(1)
+
+[1mSTANDARDS[0m
+       This command meets appropriate standards. The [1m-L [22mflag is Linux-specific.
+
+[1mAUTHOR[0m
+       ]8;;albert@users.sf.net\Albert Cahalan]8;;\ wrote kill in 1999 to replace a bsdutils one that was not standards compliant.  The  util-
+       linux one might also work correctly.
+
+[1mREPORTING BUGS[0m
+       Please send bug reports to ]8;;procps@freelists.org\procps@freelists.org]8;;\
+
+procps-ng                                          2023-01-16                                            [4mKILL[24m(1)
