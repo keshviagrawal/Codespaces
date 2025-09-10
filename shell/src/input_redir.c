@@ -79,7 +79,11 @@ static void execute_atomic_command(char** tokens, bool is_first, bool is_last, i
         int fd = (output_append)
                     ? open(output_file, O_WRONLY | O_CREAT | O_APPEND, 0644)
                     : open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-        if (fd == -1) { perror("open failed"); exit(EXIT_FAILURE); }
+        if (fd == -1) { 
+            perror("open failed"); 
+            // fprintf(stderr, "Unable to create file for writing\n");
+            exit(EXIT_FAILURE); 
+        }
         dup2(fd, STDOUT_FILENO);
         close(fd);
     }

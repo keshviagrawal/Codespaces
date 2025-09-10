@@ -382,7 +382,7 @@ bool get_reveal_path(const char* path_arg, char* prev_dir, const char* home_dir,
         }
     } else if (strcmp(path_arg, "-") == 0) {
         if (prev_dir == NULL) {
-            fprintf(stderr, "No such directory!\n");
+            // fprintf(stderr, "No such directory!\n");
             return false;
         }
         //printf("%s\n", prev_dir);
@@ -393,14 +393,15 @@ bool get_reveal_path(const char* path_arg, char* prev_dir, const char* home_dir,
         
     }
 
-    // Check if the directory exists
-    DIR* dir = opendir(target_path_buffer);
-    if (dir == NULL) {
-        return false;
-    }
-    closedir(dir);
+    // // Check if the directory exists
+    // DIR* dir = opendir(target_path_buffer);
+    // if (dir == NULL) {
+    //     return false;
+    // }
+    // closedir(dir);
     return true;
 }
+
 
 bool reveal(char** args, int num_args, char** prev_dir, const char* home_dir) {
     bool show_all = false;
@@ -503,3 +504,4 @@ bool reveal(char** args, int num_args, char** prev_dir, const char* home_dir) {
     free(filenames);
     return true;
 }
+
