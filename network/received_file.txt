@@ -1,2 +1,1 @@
-Hi hello 
-This is me
+Hello, this is a test file for S.H.A.M. protocol!

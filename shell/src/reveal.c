@@ -337,9 +337,12 @@
 #define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
+#include <limits.h>
 #include <string.h>
 #include <stdbool.h>
 #include <dirent.h>
+#include <sys/stat.h>
+#include <libgen.h>
 #include <unistd.h>
 #include <strings.h> // Required for strcasecmp
 #include "../include/reveal.h"
@@ -385,11 +388,12 @@ bool get_reveal_path(const char* path_arg, char* prev_dir, const char* home_dir,
         //printf("%s\n", prev_dir);
         strcpy(target_path_buffer, prev_dir);
     } else {
-        // Assume it's a regular path
+        
         strcpy(target_path_buffer, path_arg);
+        
     }
 
-    // Check if the directory exists
+    Check if the directory exists
     DIR* dir = opendir(target_path_buffer);
     if (dir == NULL) {
         return false;
@@ -403,14 +407,6 @@ bool reveal(char** args, int num_args, char** prev_dir, const char* home_dir) {
     bool line_by_line = false;
     const char* path_arg = NULL;
 
-    // First, check for too many arguments as per the requirement
-
-    // int non_flag_count = 0;
-    // for (int i = 0; i < num_args; i++) {
-    //     if (args[i][0] != '-') {
-    //         non_flag_count++;
-    //     }
-    // }
 
     int non_flag_count = 0;
     for (int i = 0; i < num_args; i++) {
@@ -424,21 +420,6 @@ bool reveal(char** args, int num_args, char** prev_dir, const char* home_dir) {
         return false;
     }
 
-    // Parse flags and identify the path argument
-
-    // for (int i = 0; i < num_args; i++) {
-    //     if (args[i][0] == '-') {
-    //         for (size_t j = 1; j < strlen(args[i]); j++) {
-    //             if (args[i][j] == 'a') {
-    //                 show_all = true;
-    //             } else if (args[i][j] == 'l') {
-    //                 line_by_line = true;
-    //             }
-    //         }
-    //     } else {
-    //         path_arg = args[i];
-    //     }
-    // }
 
     for (int i = 0; i < num_args; i++) {
         if (strcmp(args[i], "-") == 0) {

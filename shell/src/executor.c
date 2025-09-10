@@ -2509,60 +2509,6 @@ static BackgroundJob* find_job_by_number(int job_number);
 static BackgroundJob* find_most_recent_job();
 static void add_background_job(pid_t pid, const char* command_name);
 
-// void fg_command(char** tokens, int token_count) {
-//     BackgroundJob* job = NULL;
-//     int status;
-    
-//     if (token_count > 2) {
-//         fprintf(stderr, "Syntax: fg [job_number]\n");
-//         return;
-//     }
-
-//     if (token_count == 2) {
-//         int job_number = atoi(tokens[1]);
-//         job = find_job_by_number(job_number);
-//     } else {
-//         job = find_most_recent_job();
-//     }
-
-//     if (job == NULL) {
-//         fprintf(stderr, "No such job\n");
-//         return;
-//     }
-    
-//     printf("%s\n", job->command_name);
-    
-//     // Set the foreground PID and give terminal control
-//     foreground_pid = job->pid;
-//     if (tcsetpgrp(STDIN_FILENO, job->pid) == -1) {
-//         perror("tcsetpgrp failed");
-//         return;
-//     }
-    
-//     if (strcmp(job->state, "Stopped") == 0) {
-//         if (kill(job->pid, SIGCONT) == -1) {
-//             perror("kill failed");
-//             tcsetpgrp(STDIN_FILENO, getpgrp());
-//             return;
-//         }
-//     }
-
-//     // Wait for the foreground job to complete or stop
-//     pid_t result = waitpid(job->pid, &status, WUNTRACED);
-//     tcsetpgrp(STDIN_FILENO, getpgrp()); // Regain terminal control
-    
-//     if (result == -1) {
-//         perror("waitpid failed");
-//     } else if (WIFSTOPPED(status)) {
-//         printf("\n[%d] Stopped %s\n", job->job_number, job->command_name);
-//         strcpy(job->state, "Stopped");
-//         foreground_pid = -1;
-//     } else if (WIFEXITED(status) || WIFSIGNALED(status)) {
-//         remove_job_by_pid(job->pid);
-//         foreground_pid = -1;
-//     }
-// }
-
 void fg_command(char** tokens, int token_count) {
     BackgroundJob* job = NULL;
     int status;
@@ -2866,7 +2812,8 @@ static void execute_single_command(char** tokens, bool run_in_background) {
 
     execvp(cmd_args[0], cmd_args);
 
-    fprintf(stderr, "%s: Command not found\n", cmd_args[0]);
+    // fprintf(stderr, "%s: Command not found\n", cmd_args[0]);
+    fprintf(stderr, "Command not found!\n");
 
     if (in_fd != -1) {
         dup2(saved_stdin, STDIN_FILENO);
