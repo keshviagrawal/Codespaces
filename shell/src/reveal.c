@@ -393,7 +393,7 @@ bool get_reveal_path(const char* path_arg, char* prev_dir, const char* home_dir,
         
     }
 
-    Check if the directory exists
+    // Check if the directory exists
     DIR* dir = opendir(target_path_buffer);
     if (dir == NULL) {
         return false;
