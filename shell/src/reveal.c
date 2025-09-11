@@ -14,7 +14,7 @@
 int compare_strings(const void* a, const void* b) {
     const char* str_a = *(const char**)a;
     const char* str_b = *(const char**)b;
-    return strcasecmp(str_a, str_b);
+    return strcmp(str_a, str_b);
 }
 
 bool reveal(char** args, int num_args, char** prev_dir, const char* home_dir) {
@@ -37,7 +37,8 @@ bool reveal(char** args, int num_args, char** prev_dir, const char* home_dir) {
             line_by_line = true;
         } else {
             if (path_arg != NULL) {
-                fprintf(stderr, "reveal: too many arguments\n");
+                // fprintf(stderr, "reveal: too many arguments\n");
+                printf("reveal: Invalid Syntax!\n");
                 return false;
             }
             path_arg = args[i];
@@ -59,7 +60,8 @@ bool reveal(char** args, int num_args, char** prev_dir, const char* home_dir) {
 
     DIR* dir = opendir(target_path);
     if (dir == NULL) {
-        perror("reveal");
+        // perror("reveal");
+        printf("No such directory!\n"); 
         return false;
     }
 

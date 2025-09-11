@@ -4,7 +4,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdlib.h>
-#include <linux/limits.h>
+#include <limits.h>
 #include "../include/hop.h"
 
 // A utility function to change directory and update the previous directory.
@@ -15,8 +15,13 @@ bool change_directory(const char* path, char** prev_dir) {
         return false;
     }
 
+    // if (chdir(path) != 0) {
+    //     perror("chdir failed");
+    //     return false;
+    // }
+
     if (chdir(path) != 0) {
-        perror("chdir failed");
+        printf("No such directory!\n");
         return false;
     }
 
