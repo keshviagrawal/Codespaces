@@ -1,4 +1,3 @@
-
 #define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
@@ -6,6 +5,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <pwd.h>
+#include <ctype.h>
 #include "../include/log.h"
 #include "../include/executor.h"
 #include "../include/parser.h"
@@ -22,13 +22,9 @@ static int history_count = 0;
 static void get_history_file_path(char* path_buffer) {
     const char* home_dir = getenv("HOME");
     if (!home_dir) {
-        // Fallback if HOME environment variable is not set.
         struct passwd *pw = getpwuid(getuid());
-        if (pw) {
-            home_dir = pw->pw_dir;
-        } else {
-            home_dir = "/"; // Last resort
-        }
+        if (pw) home_dir = pw->pw_dir;
+        else home_dir = "/";
     }
     snprintf(path_buffer, MAX_PATH_LENGTH, "%s/%s", home_dir, HISTORY_FILE_NAME);
 }
@@ -36,52 +32,40 @@ static void get_history_file_path(char* path_buffer) {
 static void load_history() {
     char history_file_path[MAX_PATH_LENGTH];
     get_history_file_path(history_file_path);
-
     FILE* fp = fopen(history_file_path, "r");
-    if (!fp) {
-        return; // File doesn't exist, which is fine.
-    }
+    if (!fp) return; 
 
     char* line = NULL;
     size_t len = 0;
-    ssize_t read;
-
-    while ((read = getline(&line, &len, fp)) != -1) {
+    while (getline(&line, &len, fp) != -1) {
         line[strcspn(line, "\n")] = '\0';
         if (history_count < MAX_HISTORY_SIZE) {
             history[history_count++] = strdup(line);
         }
     }
-
     free(line);
     fclose(fp);
 }
 
-
 static void save_history() {
     char history_file_path[MAX_PATH_LENGTH];
     get_history_file_path(history_file_path);
-
     FILE* fp = fopen(history_file_path, "w");
     if (!fp) {
         perror("Failed to save history");
         return;
     }
-
     for (int i = 0; i < history_count; i++) {
         fprintf(fp, "%s\n", history[i]);
     }
-
     fclose(fp);
 }
-
 
 static void print_history() {
     for (int i = 0; i < history_count; i++) {
         printf("%s\n", history[i]);
     }
 }
-
 
 static void purge_history() {
     for (int i = 0; i < history_count; i++) {
@@ -92,12 +76,10 @@ static void purge_history() {
     save_history();
 }
 
-
 static void execute_from_history(int index, char** prev_dir, const char* home_dir) {
     if (index > 0 && index <= history_count) {
         int oldest_to_newest_index = history_count - index;
         char* command = history[oldest_to_newest_index];
-
         char* line_copy = strdup(command);
         if (!line_copy) {
             perror("strdup failed");
@@ -115,38 +97,75 @@ static void execute_from_history(int index, char** prev_dir, const char* home_di
                 execute(tokens, token_count, prev_dir, (char*)home_dir);
             }
         }
-
         free(line_copy);
-
     } else {
         fprintf(stderr, "Invalid history index.\n");
     }
 }
-
 
 void init_log() {
     load_history();
 }
 
 void add_to_log(const char* command) {
-    // Only skip the "log" command itself, but log all subcommands.
-    // Use strcmp for an exact match.
-
-
-    // if (strcmp(command, "log") == 0) {
-    //     return;
-    // }
-
-    if (strncmp(command, "log", 3) == 0 && (command[3] == ' ' || command[3] == '\0')) {
+    char* cmd_copy = strdup(command);
+    if (!cmd_copy) {
+        perror("strdup");
         return;
     }
-    // Do not add if identical to the last command.
+
+    char* to_free = cmd_copy;
+    bool found_log = false;
+    char* saveptr_cmd;
+
+    char* cmd_segment = strtok_r(cmd_copy, ";&", &saveptr_cmd);
+    while(cmd_segment != NULL) {
+        char* pipe_segment_copy = strdup(cmd_segment);
+        if (!pipe_segment_copy) {
+            found_log = true; // Fail safe
+            break;
+        }
+
+        char* saveptr_pipe;
+        char* pipe_segment = strtok_r(pipe_segment_copy, "|", &saveptr_pipe);
+        while(pipe_segment != NULL) {
+            char* first_token = pipe_segment;
+            while(*first_token && isspace((unsigned char)*first_token)) {
+                first_token++;
+            }
+
+            char* end_of_token = first_token;
+            while(*end_of_token && !isspace((unsigned char)*end_of_token)) {
+                end_of_token++;
+            }
+
+            if (first_token != end_of_token) {
+                char original_char = *end_of_token;
+                *end_of_token = '\0';
+                if (strcmp(first_token, "log") == 0) {
+                    found_log = true;
+                }
+                *end_of_token = original_char;
+            }
+
+            if (found_log) break;
+            pipe_segment = strtok_r(NULL, "|", &saveptr_pipe);
+        }
+        free(pipe_segment_copy);
+        if (found_log) break;
+        cmd_segment = strtok_r(NULL, ";&", &saveptr_cmd);
+    }
+    free(to_free);
+
+    if (found_log) {
+        return;
+    }
+
     if (history_count > 0 && strcmp(history[history_count - 1], command) == 0) {
         return;
     }
 
     if (history_count >= MAX_HISTORY_SIZE) {
-        // Overwrite the oldest command (index 0)
         free(history[0]);
         for (int i = 1; i < MAX_HISTORY_SIZE; i++) {
             history[i - 1] = history[i];
