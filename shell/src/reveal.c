@@ -14,7 +14,7 @@
 int compare_strings(const void* a, const void* b) {
     const char* str_a = *(const char**)a;
     const char* str_b = *(const char**)b;
-    return strcasecmp(str_a, str_b);
+    return strcmp(str_a, str_b);
 }
 
 bool reveal(char** args, int num_args, char** prev_dir, const char* home_dir) {
