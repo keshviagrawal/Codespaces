@@ -44,12 +44,8 @@ bool hop(char** args, int num_args, char** prev_dir, const char* home_dir) {
             }
             strncpy(target_path, *prev_dir, PATH_MAX - 1);
             target_path[PATH_MAX - 1] = '\0';
-        } else if (strcmp(args[0], "~") == 0) {
-            // Go to home directory
-            strncpy(target_path, home_dir, PATH_MAX - 1);
-            target_path[PATH_MAX - 1] = '\0';
         } else {
-            // Go to specified path
+            // Go to specified path (which might be an expanded ~)
             strncpy(target_path, args[0], PATH_MAX - 1);
             target_path[PATH_MAX - 1] = '\0';
         }

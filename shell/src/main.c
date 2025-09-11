@@ -144,7 +144,28 @@ int main() {
         tokenize_input(line_copy, tokens, &token_count);
 
         if (token_count > 0) {
-            execute(tokens, token_count, &prev_dir, SHELL_HOME_DIR);
+            char* expanded_args[1024];
+            bool needs_free[1024] = {false};
+
+            for (int i = 0; i < token_count; i++) {
+                if (tokens[i][0] == '~') {
+                    char buffer[4096];
+                    snprintf(buffer, sizeof(buffer), "%s%s", SHELL_HOME_DIR, tokens[i] + 1);
+                    expanded_args[i] = strdup(buffer);
+                    needs_free[i] = true;
+                } else {
+                    expanded_args[i] = tokens[i];
+                }
+            }
+            expanded_args[token_count] = NULL;
+
+            execute(expanded_args, token_count, &prev_dir, SHELL_HOME_DIR);
+
+            for (int i = 0; i < token_count; i++) {
+                if (needs_free[i]) {
+                    free(expanded_args[i]);
+                }
+            }
         }
 
         free(line_copy);
