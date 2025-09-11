@@ -98,18 +98,114 @@ static BackgroundJob* find_most_recent_job() {
     return NULL;
 }
 
+
+// void check_background_jobs(void) {
+//     int status;
+//     for (int i = 0; i < background_job_count; ) {
+//         pid_t pid = background_jobs[i].pid;
+//         pid_t result = waitpid(-pid, &status, WNOHANG | WUNTRACED | WCONTINUED);
+        
+//         if (result == 0) {
+//             i++;
+//             continue;
+//         } else if (result == -1) {
+//             if (errno == ECHILD) { // No more processes in the process group
+//                 remove_background_job_index(i);
+//             } else {
+//                 i++;
+//             }
+//             continue;
+//         } else {
+//             const char* name = background_jobs[i].command_name[0] != '\0' ? background_jobs[i].command_name : "";
+            
+//             if (WIFEXITED(status)) {
+//                 if (is_interactive_mode) {
+//                     if (WEXITSTATUS(status) != 0)
+//                         fprintf(stderr, "%s with pid %d exited abnormally\n", name, (int)pid, WEXITSTATUS(status));
+//                     else fprintf(stderr, "%s with pid %d exited normally\n", name, (int)pid);
+//                     fflush(stderr);
+//                 }
+//                 remove_background_job_index(i);
+//             } else if (WIFSTOPPED(status)) {
+//                 background_jobs[i].state = STOPPED;
+//                 i++;
+//             } else if (WIFCONTINUED(status)) {
+//                 background_jobs[i].state = RUNNING;
+//                 i++;
+//             }
+//         }
+//     }
+// }
+
+
+
+
+// void check_background_jobs(void) {
+//     int status;
+//     for (int i = 0; i < background_job_count; ) {
+//         pid_t pid = background_jobs[i].pid;
+//         pid_t result = waitpid(pid, &status, WNOHANG | WUNTRACED | WCONTINUED);
+        
+//         if (result == 0) {
+//             // Process is still running
+//             i++;
+//             continue;
+//         } else if (result == -1) {
+//             if (errno == ECHILD) { 
+//                 // Process was already reaped or doesn't exist
+//                 // Check if process actually exists using kill with signal 0
+//                 if (kill(pid, 0) == -1 && errno == ESRCH) {
+//                     // Process really doesn't exist, remove it
+//                     remove_background_job_index(i);
+//                 } else {
+//                     // Process exists but was already reaped, keep it as running
+//                     background_jobs[i].state = RUNNING;
+//                     i++;
+//                 }
+//             } else {
+//                 i++;
+//             }
+//             continue;
+//         } else {
+//             // Process state changed
+//             const char* name = background_jobs[i].command_name[0] != '\0' ? background_jobs[i].command_name : "";
+            
+//             if (WIFEXITED(status)) {
+//                 if (is_interactive_mode) {
+//                     if (WEXITSTATUS(status) != 0)
+//                         fprintf(stderr, "%s with pid %d exited abnormally\n", name, (int)pid);
+//                     else fprintf(stderr, "%s with pid %d exited normally\n", name, (int)pid);
+//                     fflush(stderr);
+//                 }
+//                 remove_background_job_index(i);
+//             } else if (WIFSTOPPED(status)) {
+//                 background_jobs[i].state = STOPPED;
+//                 i++;
+//             } else if (WIFCONTINUED(status)) {
+//                 background_jobs[i].state = RUNNING;
+//                 i++;
+//             }
+//         }
+//     }
+// }
+
 void check_background_jobs(void) {
     int status;
     for (int i = 0; i < background_job_count; ) {
         pid_t pid = background_jobs[i].pid;
-        pid_t result = waitpid(-pid, &status, WNOHANG | WUNTRACED | WCONTINUED);
+        pid_t result = waitpid(pid, &status, WNOHANG | WUNTRACED | WCONTINUED);
         
         if (result == 0) {
             i++;
             continue;
         } else if (result == -1) {
-            if (errno == ECHILD) { // No more processes in the process group
-                remove_background_job_index(i);
+            if (errno == ECHILD) { 
+                if (kill(pid, 0) == -1 && errno == ESRCH) {
+                    remove_background_job_index(i);
+                } else {
+                    background_jobs[i].state = RUNNING;
+                    i++;
+                }
             } else {
                 i++;
             }
@@ -119,10 +215,16 @@ void check_background_jobs(void) {
             
             if (WIFEXITED(status)) {
                 if (is_interactive_mode) {
-                    if (WEXITSTATUS(status) != 0)
-                        fprintf(stderr, "%s with pid %d exited abnormally\n", name, (int)pid, WEXITSTATUS(status));
-                    else fprintf(stderr, "%s with pid %d exited normally\n", name, (int)pid);
-                    fflush(stderr);
+                    // Change this format to match test expectations
+                    printf("[%d] Done %s\n", background_jobs[i].job_number, name);
+                    fflush(stdout);
+                }
+                remove_background_job_index(i);
+            } else if (WIFSIGNALED(status)) {
+                // Add handling for terminated by signal
+                if (is_interactive_mode) {
+                    printf("[%d] Terminated %s\n", background_jobs[i].job_number, name);
+                    fflush(stdout);
                 }
                 remove_background_job_index(i);
             } else if (WIFSTOPPED(status)) {
@@ -144,7 +246,9 @@ void list_activities(void) {
     check_background_jobs();
     BackgroundJob active_jobs[256];
     int active_jobs_count = 0;
+    
     for(int i = 0; i < background_job_count; i++) {
+        // printf("%d %s\n", background_jobs[i].pid, background_jobs[i].command_name);
         active_jobs[active_jobs_count++] = background_jobs[i];
     }
     qsort(active_jobs, active_jobs_count, sizeof(BackgroundJob), compare_background_jobs);
@@ -169,6 +273,53 @@ void check_and_kill_all_jobs(void) {
     }
     while (waitpid(-1, NULL, 0) > 0);
 }
+
+// void fg_command(char** tokens, int token_count) {
+//     BackgroundJob* job = NULL;
+//     if (token_count > 2) {
+//         fprintf(stderr, "Syntax: fg [job_number]\n");
+//         return;
+//     }
+//     job = (token_count == 2) ? find_job_by_number(atoi(tokens[1])) : find_most_recent_job();
+//     if (job == NULL) {
+//         fprintf(stderr, "No such job\n");
+//         return;
+//     }
+    
+//     printf("%s\n", job->command_name);
+//     pid_t pgid = job->pid;
+    
+//     foreground_pid = pgid;
+//     if (tcsetpgrp(STDIN_FILENO, pgid) == -1) {
+//         perror("tcsetpgrp failed");
+//         foreground_pid = -1;
+//         return;
+//     }
+    
+//     if (job->state == STOPPED) {
+//         if (kill(-pgid, SIGCONT) == -1) {
+//             perror("kill failed");
+//             tcsetpgrp(STDIN_FILENO, getpgrp());
+//             foreground_pid = -1;
+//             return;
+//         }
+//     }
+
+//     int status;
+//     if (waitpid(-pgid, &status, WUNTRACED) != -1) {
+//         if (WIFSTOPPED(status)) {
+//             fprintf(stderr, "\n[%d] Stopped %s\n", job->job_number, job->command_name);
+//             job->state = STOPPED;
+//         } else {
+//             remove_job_by_pid(job->pid);
+//         }
+//     } else if (errno == ECHILD) {
+//         remove_job_by_pid(job->pid);
+//     }
+
+//     tcsetpgrp(STDIN_FILENO, getpgrp());
+//     foreground_pid = -1;
+// }
 
 void fg_command(char** tokens, int token_count) {
     BackgroundJob* job = NULL;
@@ -202,17 +353,25 @@ void fg_command(char** tokens, int token_count) {
     }
 
     int status;
-    if (waitpid(-pgid, &status, WUNTRACED) != -1) {
+    pid_t wait_result = waitpid(-pgid, &status, WUNTRACED);
+    
+    if (wait_result != -1) {
         if (WIFSTOPPED(status)) {
             fprintf(stderr, "\n[%d] Stopped %s\n", job->job_number, job->command_name);
             job->state = STOPPED;
-        } else {
+        } else if (WIFSIGNALED(status)) {
+            // Process was killed by signal (like Ctrl+C)
+            printf("\n"); // Add newline after ^C
+            remove_job_by_pid(job->pid);
+        } else if (WIFEXITED(status)) {
+            // Process exited normally
             remove_job_by_pid(job->pid);
         }
     } else if (errno == ECHILD) {
         remove_job_by_pid(job->pid);
     }
 
+    // Always restore terminal control to shell
     tcsetpgrp(STDIN_FILENO, getpgrp());
     foreground_pid = -1;
 }

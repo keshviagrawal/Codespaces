@@ -529,7 +529,7 @@ proc run_pipe_chain_tests {} {
     print_section "pipe chains"
 
     run_test "three command pipe" "" \
-        [list [list "echo apple banana cherry | tac | wc -w" "3"]]
+        [list [list "echo apple banana cherry | cat | wc -w" "3"]]
 
     run_test "pipe builtin to external" "touch $TEMP_DIR/1pipe $TEMP_DIR/2pipe" \
         [list [list "reveal -l $TEMP_DIR | head -2" ".*1pipe.*2pipe.*"]]
