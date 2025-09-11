@@ -1,114 +1,22 @@
-// #define _POSIX_C_SOURCE 200809L
-// #include <stdbool.h>
-// #include <stdio.h>
-// #include <string.h>
-// #include <unistd.h>
-// #include <stdlib.h>
-// #include "../include/hop.h"
-
-// /**
-//  * @brief Prints the current working directory to the console.
-//  */
-
-// // void print_cwd() {
-// //     char cwd[1024];
-// //     if (getcwd(cwd, sizeof(cwd)) != NULL) {
-// //         printf("<rudy@iiit:%s> ", cwd);
-// //     } else {
-// //         perror("getcwd");
-// //     }
-// // }
-
-// bool change_directory(const char* path, char** prev_dir) {
-//     char old_dir[1024];
-//     if (getcwd(old_dir, sizeof(old_dir)) == NULL) {
-//         perror("getcwd failed before changing directory");
-//         return false;
-//     }
-
-//     if (chdir(path) != 0) {
-//         printf("No such directory!\n");
-//         return false;
-//     }
-
-//     if (*prev_dir != NULL) {
-//         free(*prev_dir);
-//     }
-//     *prev_dir = strdup(old_dir);
-
-//     return true;
-// }
-
-// bool hop(char** args, int num_args, char** prev_dir, const char* home_dir) {
-//     // If no arguments, or the first argument is "~", change to home directory.
-//     if (num_args == 0 || (num_args > 0 && strcmp(args[0], "~") == 0)) {
-//         if (home_dir == NULL) {
-//             fprintf(stderr, "Home directory not set.\n");
-//             return false;
-//         }
-//         if (!change_directory(home_dir, prev_dir)) {
-//             return false;
-//         }
-//         if (num_args == 0) return true; // Exit if no args were given
-//     }
-    
-//     // Process remaining arguments sequentially
-//     int start_index = (num_args > 0 && strcmp(args[0], "~") == 0) ? 1 : 0;
-    
-//     for (int i = start_index; i < num_args; i++) {
-//         char* arg = args[i];
-        
-//         if (strcmp(arg, ".") == 0) {
-//             // Do nothing
-//             continue;
-//         } else if (strcmp(arg, "..") == 0) {
-//             if (!change_directory("..", prev_dir)) {
-//                 return false;
-//             }
-//         } else if (strcmp(arg, "-") == 0) {
-//             if (*prev_dir == NULL) {
-//                 fprintf(stderr, "No previous directory.\n");
-//                 return false;
-//             }
-//             char* temp_prev = strdup(*prev_dir);
-//             if (!change_directory(temp_prev, prev_dir)) {
-//                 free(temp_prev);
-//                 return false;
-//             }
-//             free(temp_prev);
-//         } else if (strcmp(arg, "~") == 0) {
-//             if (!change_directory(home_dir, prev_dir)) {
-//                 return false;
-//             }
-//         } else {
-//             // Assume it's a directory name
-//             if (!change_directory(arg, prev_dir)) {
-//                 return false;
-//             }
-//         }
-//     }
-
-//     return true;
-// }
-
-
 #define _POSIX_C_SOURCE 200809L
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <linux/limits.h>
 #include "../include/hop.h"
 
+// A utility function to change directory and update the previous directory.
 bool change_directory(const char* path, char** prev_dir) {
-    char old_dir[1024];
+    char old_dir[PATH_MAX];
     if (getcwd(old_dir, sizeof(old_dir)) == NULL) {
-        perror("getcwd failed before changing directory");
+        perror("getcwd failed");
         return false;
     }
 
     if (chdir(path) != 0) {
-        printf("No such directory!\n");
+        perror("chdir failed");
         return false;
     }
 
@@ -116,63 +24,50 @@ bool change_directory(const char* path, char** prev_dir) {
         free(*prev_dir);
     }
     *prev_dir = strdup(old_dir);
-
     return true;
 }
 
 bool hop(char** args, int num_args, char** prev_dir, const char* home_dir) {
-    // If no arguments, or the first argument is "~", change to home directory.
-    if (num_args == 0 || (num_args > 0 && strcmp(args[0], "~") == 0)) {
-        if (home_dir == NULL) {
-            fprintf(stderr, "Home directory not set.\n");
-            return false;
-        }
-        if (!change_directory(home_dir, prev_dir)) {
-            return false;
-        }
-        if (num_args == 0) return true; // Exit if no args were given
-    }
-    
-    // Process remaining arguments sequentially
-    int start_index = (num_args > 0 && strcmp(args[0], "~") == 0) ? 1 : 0;
-    
-    for (int i = start_index; i < num_args; i++) {
-        char* arg = args[i];
-        
-        if (strcmp(arg, ".") == 0) {
-            // Do nothing
-            continue;
-        } else if (strcmp(arg, "..") == 0) {
-            if (!change_directory("..", prev_dir)) {
-                return false;
-            }
-        } else if (strcmp(arg, "-") == 0) {
+    char target_path[PATH_MAX];
+
+    if (num_args == 0) {
+        // No arguments, go to home directory
+        strncpy(target_path, home_dir, PATH_MAX - 1);
+        target_path[PATH_MAX - 1] = '\0';
+    } else if (num_args == 1) {
+        // One argument
+        if (strcmp(args[0], "-") == 0) {
+            // Go to previous directory
             if (*prev_dir == NULL) {
-                fprintf(stderr, "No previous directory.\n");
+                fprintf(stderr, "shell: hop: prev_dir not set\n");
                 return false;
             }
-            char current_dir[1024];
-            if (getcwd(current_dir, sizeof(current_dir)) == NULL) {
-                perror("getcwd failed");
-                return false;
-            }
-            if (chdir(*prev_dir) != 0) {
-                printf("No such directory!\n");
-                return false;
-            }
-            free(*prev_dir);
-            *prev_dir = strdup(current_dir);
-        } else if (strcmp(arg, "~") == 0) {
-            if (!change_directory(home_dir, prev_dir)) {
-                return false;
-            }
+            strncpy(target_path, *prev_dir, PATH_MAX - 1);
+            target_path[PATH_MAX - 1] = '\0';
+        } else if (strcmp(args[0], "~") == 0) {
+            // Go to home directory
+            strncpy(target_path, home_dir, PATH_MAX - 1);
+            target_path[PATH_MAX - 1] = '\0';
         } else {
-            // Assume it's a directory name
-            if (!change_directory(arg, prev_dir)) {
-                return false;
-            }
+            // Go to specified path
+            strncpy(target_path, args[0], PATH_MAX - 1);
+            target_path[PATH_MAX - 1] = '\0';
         }
+    } else {
+        // More than one argument
+        fprintf(stderr, "hop: too many arguments\n");
+        return false;
     }
 
-    return true;
+    if (change_directory(target_path, prev_dir)) {
+        if (num_args == 1 && strcmp(args[0], "-") == 0) {
+            char cwd[PATH_MAX];
+            if (getcwd(cwd, sizeof(cwd)) != NULL) {
+                printf("%s\n", cwd);
+            }
+        }
+        return true;
+    }
+
+    return false;
 }
