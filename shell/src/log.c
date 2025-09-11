@@ -97,7 +97,6 @@ static void execute_from_history(int index, char** prev_dir, const char* home_di
     if (index > 0 && index <= history_count) {
         int oldest_to_newest_index = history_count - index;
         char* command = history[oldest_to_newest_index];
-        // printf("%s\n", command);
 
         char* line_copy = strdup(command);
         if (!line_copy) {
@@ -110,20 +109,13 @@ static void execute_from_history(int index, char** prev_dir, const char* home_di
         tokenize_input(line_copy, tokens, &token_count);
 
         if (token_count > 0) {
-            if (strcmp(tokens[0], "hop") == 0) {
-                hop(&tokens[1], token_count - 1, prev_dir, home_dir);
-            } else if (strcmp(tokens[0], "reveal") == 0) {
-                reveal(&tokens[1], token_count - 1, prev_dir, home_dir);
-            } else if (strcmp(tokens[0], "log") == 0) {
+            if (strcmp(tokens[0], "log") == 0) {
                 fprintf(stderr, "Cannot execute 'log' command from history.\n");
             } else {
-                execute_command(tokens, token_count);
+                execute(tokens, token_count, prev_dir, (char*)home_dir);
             }
         }
 
-        for (int i = 0; i < token_count; i++) {
-            free(tokens[i]);
-        }
         free(line_copy);
 
     } else {
