@@ -119,13 +119,9 @@ void check_background_jobs(void) {
             
             if (WIFEXITED(status)) {
                 if (is_interactive_mode) {
-                    fprintf(stderr, "%s with pid %d exited normally\n", name, (int)pid);
-                    fflush(stderr);
-                }
-                remove_background_job_index(i);
-            } else if (WIFSIGNALED(status)) {
-                if (is_interactive_mode) {
-                    fprintf(stderr, "%s with pid %d exited abnormally\n", name, (int)pid);
+                    if (WEXITSTATUS(status) != 0)
+                        fprintf(stderr, "%s with pid %d exited abnormally\n", name, (int)pid, WEXITSTATUS(status));
+                    else fprintf(stderr, "%s with pid %d exited normally\n", name, (int)pid);
                     fflush(stderr);
                 }
                 remove_background_job_index(i);
