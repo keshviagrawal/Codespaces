@@ -14,13 +14,11 @@
 int compare_strings(const void* a, const void* b) {
     const char* str_a = *(const char**)a;
     const char* str_b = *(const char**)b;
-    return strcmp(str_a, str_b);
+    return strcasecmp(str_a, str_b);
 }
 
 bool reveal(char** args, int num_args, char** prev_dir, const char* home_dir) {
-    // Suppress unused parameter warnings
-    (void)prev_dir;
-    (void)home_dir;
+    (void)home_dir; // home_dir is no longer needed here
 
     bool show_all = false;
     bool line_by_line = false;
@@ -28,13 +26,11 @@ bool reveal(char** args, int num_args, char** prev_dir, const char* home_dir) {
 
     // Parse flags and identify the path argument
     for (int i = 0; i < num_args; i++) {
-        if (strcmp(args[i], "-al") == 0 || strcmp(args[i], "-la") == 0) {
-            show_all = true;
-            line_by_line = true;
-        } else if (strcmp(args[i], "-a") == 0) {
-            show_all = true;
-        } else if (strcmp(args[i], "-l") == 0) {
-            line_by_line = true;
+        if (args[i][0] == '-' && strlen(args[i]) > 1) {
+            for (size_t j = 1; j < strlen(args[i]); j++) {
+                if (args[i][j] == 'a') show_all = true;
+                else if (args[i][j] == 'l') line_by_line = true;
+            }
         } else {
             if (path_arg != NULL) {
                 // fprintf(stderr, "reveal: too many arguments\n");
@@ -47,13 +43,18 @@ bool reveal(char** args, int num_args, char** prev_dir, const char* home_dir) {
 
     char target_path[PATH_MAX];
     if (path_arg == NULL) {
-        // No path argument given, default to the current directory
         if (getcwd(target_path, sizeof(target_path)) == NULL) {
-            perror("getcwd failed");
+            perror("reveal: getcwd");
             return false;
         }
+    } else if (strcmp(path_arg, "-") == 0) {
+        if (*prev_dir == NULL) {
+            printf("No such directory!\n");
+            return false;
+        }
+        strncpy(target_path, *prev_dir, sizeof(target_path) - 1);
+        target_path[sizeof(target_path) - 1] = '\0';
     } else {
-        // Path argument is provided (and should be expanded by main)
         strncpy(target_path, path_arg, sizeof(target_path) - 1);
         target_path[sizeof(target_path) - 1] = '\0';
     }
@@ -72,7 +73,7 @@ bool reveal(char** args, int num_args, char** prev_dir, const char* home_dir) {
 
     filenames = (char**)malloc(max_files * sizeof(char*));
     if (filenames == NULL) {
-        perror("malloc failed");
+        perror("reveal: malloc");
         closedir(dir);
         return false;
     }
@@ -81,13 +82,11 @@ bool reveal(char** args, int num_args, char** prev_dir, const char* home_dir) {
         if (!show_all && entry->d_name[0] == '.') {
             continue;
         }
-
         if (file_count >= max_files) {
             max_files *= 2;
             char** new_filenames = (char**)realloc(filenames, max_files * sizeof(char*));
             if (new_filenames == NULL) {
-                perror("realloc failed");
-                // Free existing memory before returning
+                perror("reveal: realloc");
                 for (int i = 0; i < file_count; i++) free(filenames[i]);
                 free(filenames);
                 closedir(dir);
