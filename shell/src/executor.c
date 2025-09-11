@@ -275,13 +275,13 @@ static void run_command_in_child(char** tokens, int token_count, bool run_in_bac
     for (int i = 0; i < token_count && tokens[i] != NULL; i++) {
         if (strcmp(tokens[i], "<") == 0) {
             if (!tokens[++i]) { fprintf(stderr, "Syntax error near `<`\n"); exit(1); }
-            if ((in_fd = open(tokens[i], O_RDONLY)) == -1) { perror(tokens[i]); exit(1); }
+            if ((in_fd = open(tokens[i], O_RDONLY)) == -1) { printf("Unable to create file for writing"); exit(1); }
         } else if (strcmp(tokens[i], ">") == 0) {
             if (!tokens[++i]) { fprintf(stderr, "Syntax error near `>`\n"); exit(1); }
-            if ((out_fd = open(tokens[i], O_WRONLY | O_CREAT | O_TRUNC, 0666)) == -1) { perror(tokens[i]); exit(1); }
+            if ((out_fd = open(tokens[i], O_WRONLY | O_CREAT | O_TRUNC, 0666)) == -1) { printf("No such file or directory"); exit(1); }
         } else if (strcmp(tokens[i], ">>") == 0) {
             if (!tokens[++i]) { fprintf(stderr, "Syntax error near `>>`\n"); exit(1); }
-            if ((out_fd = open(tokens[i], O_WRONLY | O_CREAT | O_APPEND, 0666)) == -1) { perror(tokens[i]); exit(1); }
+            if ((out_fd = open(tokens[i], O_WRONLY | O_CREAT | O_APPEND, 0666)) == -1) { printf("Unable to create file for writing"); exit(1); }
         } else {
             cmd_args[arg_count++] = tokens[i];
         }
