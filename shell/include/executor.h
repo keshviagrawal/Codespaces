@@ -4,12 +4,18 @@
 #include <stdbool.h>
 #include <sys/types.h>
 
+// Enum for job states
+typedef enum {
+    RUNNING,
+    STOPPED
+} JobState;
+
 // Struct for representing a background job
 typedef struct {
     int job_number;
-    pid_t pid;
+    pid_t pid; // This is the process group ID (pgid)
     char command_name[256];
-    char state[20];
+    JobState state;
 } BackgroundJob;
 
 // The main execution function that parses and runs commands.

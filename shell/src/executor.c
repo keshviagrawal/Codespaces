@@ -28,15 +28,27 @@ static void run_command_in_child(char** tokens, int token_count, bool run_in_bac
 static pid_t execute_pipeline(char** tokens, int token_count, bool run_in_background, const char* command_name, char** prev_dir, char* SHELL_HOME_DIR);
 static void execute_builtin(char** tokens, int token_count, char** prev_dir, char* SHELL_HOME_DIR);
 
-// Job Management Functions (mostly unchanged)
-static void add_background_job(pid_t pid, const char* command_name) {
+// Helper to get job state as a string
+static const char* get_job_state_string(JobState state) {
+    switch (state) {
+        case RUNNING:
+            return "Running";
+        case STOPPED:
+            return "Stopped";
+        default:
+            return "Unknown";
+    }
+}
+
+// Job Management Functions
+static void add_background_job(pid_t pid, const char* command_name, JobState state) {
     if (background_job_count >= (int)(sizeof(background_jobs) / sizeof(background_jobs[0]))) {
         return;
     }
     BackgroundJob* job = &background_jobs[background_job_count++];
     job->job_number = next_job_number++;
     job->pid = pid;
-    strcpy(job->state, "Running");
+    job->state = state;
     if (command_name != NULL) {
         strncpy(job->command_name, command_name, sizeof(job->command_name) - 1);
         job->command_name[sizeof(job->command_name) - 1] = '\0';
@@ -44,7 +56,7 @@ static void add_background_job(pid_t pid, const char* command_name) {
         job->command_name[0] = '\0';
     }
 
-    if (is_interactive_mode) {
+    if (is_interactive_mode && state == RUNNING) {
         fprintf(stderr, "[%d] %d\n", job->job_number, (int)job->pid);
         fflush(stderr);
     }
@@ -90,13 +102,17 @@ void check_background_jobs(void) {
     int status;
     for (int i = 0; i < background_job_count; ) {
         pid_t pid = background_jobs[i].pid;
-        pid_t result = waitpid(pid, &status, WNOHANG | WUNTRACED | WCONTINUED);
+        pid_t result = waitpid(-pid, &status, WNOHANG | WUNTRACED | WCONTINUED);
         
         if (result == 0) {
             i++;
             continue;
         } else if (result == -1) {
-            remove_background_job_index(i);
+            if (errno == ECHILD) { // No more processes in the process group
+                remove_background_job_index(i);
+            } else {
+                i++;
+            }
             continue;
         } else {
             const char* name = background_jobs[i].command_name[0] != '\0' ? background_jobs[i].command_name : "";
@@ -114,10 +130,10 @@ void check_background_jobs(void) {
                 }
                 remove_background_job_index(i);
             } else if (WIFSTOPPED(status)) {
-                strcpy(background_jobs[i].state, "Stopped");
+                background_jobs[i].state = STOPPED;
                 i++;
             } else if (WIFCONTINUED(status)) {
-                strcpy(background_jobs[i].state, "Running");
+                background_jobs[i].state = RUNNING;
                 i++;
             }
         }
@@ -137,7 +153,7 @@ void list_activities(void) {
     }
     qsort(active_jobs, active_jobs_count, sizeof(BackgroundJob), compare_background_jobs);
     for (int i = 0; i < active_jobs_count; i++) {
-        printf("[%d] : %s - %s\n", active_jobs[i].pid, active_jobs[i].command_name, active_jobs[i].state);
+        printf("[%d] : %s - %s\n", active_jobs[i].pid, active_jobs[i].command_name, get_job_state_string(active_jobs[i].state));
     }
 }
 
@@ -153,7 +169,7 @@ void ping(pid_t pid, int signal_number) {
 
 void check_and_kill_all_jobs(void) {
     for (int i = 0; i < background_job_count; i++) {
-        kill(background_jobs[i].pid, SIGKILL);
+        kill(-background_jobs[i].pid, SIGKILL);
     }
     while (waitpid(-1, NULL, 0) > 0);
 }
@@ -171,38 +187,37 @@ void fg_command(char** tokens, int token_count) {
     }
     
     printf("%s\n", job->command_name);
-    pid_t pgid = getpgid(job->pid);
-    if (pgid == -1) {
-        perror("getpgid failed");
-        return;
-    }
+    pid_t pgid = job->pid;
     
     foreground_pid = pgid;
     if (tcsetpgrp(STDIN_FILENO, pgid) == -1) {
         perror("tcsetpgrp failed");
+        foreground_pid = -1;
         return;
     }
     
-    if (strcmp(job->state, "Stopped") == 0) {
+    if (job->state == STOPPED) {
         if (kill(-pgid, SIGCONT) == -1) {
             perror("kill failed");
             tcsetpgrp(STDIN_FILENO, getpgrp());
+            foreground_pid = -1;
             return;
         }
     }
 
     int status;
-    pid_t result = waitpid(-pgid, &status, WUNTRACED);
-    tcsetpgrp(STDIN_FILENO, getpgrp());
-    
-    if (result != -1) {
+    if (waitpid(-pgid, &status, WUNTRACED) != -1) {
         if (WIFSTOPPED(status)) {
-            printf("\n[%d] Stopped %s\n", job->job_number, job->command_name);
-            strcpy(job->state, "Stopped");
+            fprintf(stderr, "\n[%d] Stopped %s\n", job->job_number, job->command_name);
+            job->state = STOPPED;
         } else {
             remove_job_by_pid(job->pid);
         }
+    } else if (errno == ECHILD) {
+        remove_job_by_pid(job->pid);
     }
+
+    tcsetpgrp(STDIN_FILENO, getpgrp());
     foreground_pid = -1;
 }
 
@@ -217,15 +232,15 @@ void bg_command(char** tokens, int token_count) {
         fprintf(stderr, "No such job\n");
         return;
     }
-    if (strcmp(job->state, "Running") == 0) {
+    if (job->state == RUNNING) {
         fprintf(stderr, "Job already running\n");
         return;
     }
-    if (kill(job->pid, SIGCONT) == -1) {
+    if (kill(-job->pid, SIGCONT) == -1) {
         perror("kill failed");
         return;
     }
-    strcpy(job->state, "Running");
+    job->state = RUNNING;
     printf("[%d] %s &\n", job->job_number, job->command_name);
 }
 
@@ -354,7 +369,7 @@ static pid_t execute_pipeline(char** tokens, int token_count, bool run_in_backgr
 
         setpgid(pid, pid);
         if (run_in_background) {
-            add_background_job(pid, command_name);
+            add_background_job(pid, command_name, RUNNING);
             return pid;
         }
         
@@ -362,11 +377,11 @@ static pid_t execute_pipeline(char** tokens, int token_count, bool run_in_backgr
         if (is_interactive_mode) tcsetpgrp(STDIN_FILENO, pid);
         
         int status;
-        waitpid(pid, &status, WUNTRACED);
-
-        if (WIFSTOPPED(status)) {
-            add_background_job(pid, command_name);
-            fprintf(stderr, "\n[%d] Stopped %s\n", background_jobs[background_job_count-1].job_number, command_name);
+        if (waitpid(pid, &status, WUNTRACED) != -1) {
+            if (WIFSTOPPED(status)) {
+                add_background_job(pid, command_name, STOPPED);
+                fprintf(stderr, "\n[%d] Stopped %s\n", background_jobs[background_job_count-1].job_number, command_name);
+            }
         }
         
         if (is_interactive_mode) tcsetpgrp(STDIN_FILENO, getpgrp());
@@ -411,7 +426,7 @@ static pid_t execute_pipeline(char** tokens, int token_count, bool run_in_backgr
     }
 
     if (run_in_background) {
-        for (int i = 0; i < pid_count; i++) add_background_job(pids[i], command_name);
+        if (pgid != 0) add_background_job(pgid, command_name, RUNNING);
         return pgid;
     }
     
@@ -419,14 +434,25 @@ static pid_t execute_pipeline(char** tokens, int token_count, bool run_in_backgr
     if (is_interactive_mode && pgid != 0) tcsetpgrp(STDIN_FILENO, pgid);
     
     int status;
-    for (int i = 0; i < pid_count; i++) {
-        waitpid(pids[i], &status, WUNTRACED);
-        if (WIFSTOPPED(status)) {
-            add_background_job(pids[i], command_name);
-            if (i == pid_count - 1) {
-                fprintf(stderr, "\n[%d] Stopped %s\n", background_jobs[background_job_count-1].job_number, command_name);
+    bool stopped = false;
+    int processes_to_wait_for = pid_count;
+    while (processes_to_wait_for > 0) {
+        pid_t child_pid = waitpid(-pgid, &status, WUNTRACED);
+        if (child_pid > 0) {
+            if (WIFSTOPPED(status)) {
+                stopped = true;
+                break;
+            } else if (WIFEXITED(status) || WIFSIGNALED(status)) {
+                processes_to_wait_for--;
             }
+        } else if (errno == ECHILD) {
+            break;
         }
+    }
+
+    if (stopped) {
+        add_background_job(pgid, command_name, STOPPED);
+        fprintf(stderr, "\n[%d] Stopped %s\n", background_jobs[background_job_count-1].job_number, command_name);
     }
     
     if (is_interactive_mode) tcsetpgrp(STDIN_FILENO, getpgrp());
@@ -436,6 +462,8 @@ static pid_t execute_pipeline(char** tokens, int token_count, bool run_in_backgr
 
 bool execute(char** tokens, int token_count, char** prev_dir, char* SHELL_HOME_DIR) {
     if (token_count <= 0) return false;
+
+    check_background_jobs();
 
     int cmd_start = 0;
     for (int i = 0; i < token_count; i++) {
