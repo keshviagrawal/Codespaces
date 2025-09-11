@@ -24,6 +24,7 @@ int background_job_count = 0;
 static int next_job_number = 1;
 
 // Forward declarations
+static void run_command_in_child(char** tokens, int token_count, bool run_in_background, char** prev_dir, char* SHELL_HOME_DIR);
 static pid_t execute_pipeline(char** tokens, int token_count, bool run_in_background, const char* command_name, char** prev_dir, char* SHELL_HOME_DIR);
 static void execute_builtin(char** tokens, int token_count, char** prev_dir, char* SHELL_HOME_DIR);
 
@@ -266,12 +267,12 @@ static void execute_builtin(char** tokens, int token_count, char** prev_dir, cha
     }
 }
 
-static void run_command_in_child(char** tokens, bool run_in_background, char** prev_dir, char* SHELL_HOME_DIR) {
+static void run_command_in_child(char** tokens, int token_count, bool run_in_background, char** prev_dir, char* SHELL_HOME_DIR) {
     char* cmd_args[1024];
     int arg_count = 0;
     int in_fd = -1, out_fd = -1;
 
-    for (int i = 0; tokens[i] != NULL; i++) {
+    for (int i = 0; i < token_count && tokens[i] != NULL; i++) {
         if (strcmp(tokens[i], "<") == 0) {
             if (!tokens[++i]) { fprintf(stderr, "Syntax error near `<`\n"); exit(1); }
             if ((in_fd = open(tokens[i], O_RDONLY)) == -1) { perror(tokens[i]); exit(1); }
@@ -348,7 +349,7 @@ static pid_t execute_pipeline(char** tokens, int token_count, bool run_in_backgr
                 setpgid(0, 0);
                 if (!run_in_background) tcsetpgrp(STDIN_FILENO, getpgrp());
             }
-            run_command_in_child(tokens, run_in_background, prev_dir, SHELL_HOME_DIR);
+            run_command_in_child(tokens, token_count, run_in_background, prev_dir, SHELL_HOME_DIR);
         }
 
         setpgid(pid, pid);
@@ -381,8 +382,7 @@ static pid_t execute_pipeline(char** tokens, int token_count, bool run_in_backgr
     for (int i = 0; i < num_cmds; i++) {
         int end = start;
         while(end < token_count && strcmp(tokens[end], "|") != 0) end++;
-        tokens[end] = NULL;
-
+        
         bool is_last = (i == num_cmds - 1);
         if (!is_last && pipe(fds) == -1) { perror("pipe"); return -1; }
 
@@ -395,7 +395,10 @@ static pid_t execute_pipeline(char** tokens, int token_count, bool run_in_backgr
             }
             if (in_fd != -1) { dup2(in_fd, STDIN_FILENO); close(in_fd); }
             if (!is_last) { dup2(fds[1], STDOUT_FILENO); close(fds[0]); close(fds[1]); }
-            run_command_in_child(&tokens[start], run_in_background, prev_dir, SHELL_HOME_DIR);
+            
+            char** child_tokens = &tokens[start];
+            int child_token_count = end - start;
+            run_command_in_child(child_tokens, child_token_count, run_in_background, prev_dir, SHELL_HOME_DIR);
         }
 
         if (pgid == 0) pgid = pid;
