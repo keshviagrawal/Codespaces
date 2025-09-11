@@ -13,7 +13,6 @@
 #include "../include/hop.h"
 #include "../include/reveal.h"
 #include "../include/log.h"
-#include "../include/input_redir.h"
 #include "../include/executor.h"
 
 bool is_interactive_mode = true;

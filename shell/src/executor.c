@@ -306,7 +306,7 @@ static void run_command_in_child(char** tokens, int token_count, bool run_in_bac
     
     if (arg_count > 0) {
         execvp(cmd_args[0], cmd_args);
-        fprintf(stderr, "%s: Command not found\n", cmd_args[0]);
+        fprintf(stderr, "%s: Command not found!\n", cmd_args[0]);
     }
     exit(127);
 }
