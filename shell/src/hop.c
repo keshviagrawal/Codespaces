@@ -7,18 +7,12 @@
 #include <limits.h>
 #include "../include/hop.h"
 
-// A utility function to change directory and update the previous directory.
 bool change_directory(const char* path, char** prev_dir) {
     char old_dir[PATH_MAX];
     if (getcwd(old_dir, sizeof(old_dir)) == NULL) {
         perror("getcwd failed");
         return false;
     }
-
-    // if (chdir(path) != 0) {
-    //     perror("chdir failed");
-    //     return false;
-    // }
 
     if (chdir(path) != 0) {
         printf("No such directory!\n");
@@ -44,8 +38,7 @@ bool hop(char** args, int num_args, char** prev_dir, const char* home_dir) {
         if (strcmp(args[0], "-") == 0) {
             // Go to previous directory
             if (*prev_dir == NULL) {
-                fprintf(stderr, "shell: hop: prev_dir not set\n");
-                return false;
+                return true;
             }
             strncpy(target_path, *prev_dir, PATH_MAX - 1);
             target_path[PATH_MAX - 1] = '\0';
@@ -61,12 +54,6 @@ bool hop(char** args, int num_args, char** prev_dir, const char* home_dir) {
     }
 
     if (change_directory(target_path, prev_dir)) {
-        if (num_args == 1 && strcmp(args[0], "-") == 0) {
-            char cwd[PATH_MAX];
-            if (getcwd(cwd, sizeof(cwd)) != NULL) {
-                printf("%s\n", cwd);
-            }
-        }
         return true;
     }
 

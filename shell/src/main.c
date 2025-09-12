@@ -132,6 +132,11 @@ int main() {
 
         add_to_log(line);
 
+        if (!parse_input(line)) {
+            printf("Invalid Syntax!\n");
+            continue;
+        }
+
         char* line_copy = strdup(line);
         if (!line_copy) {
             perror("strdup");
@@ -168,6 +173,9 @@ int main() {
         }
 
         free(line_copy);
+
+
+        
     }
     
     free(line);

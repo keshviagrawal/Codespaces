@@ -74,6 +74,12 @@ static void purge_history() {
     }
     history_count = 0;
     save_history();
+    // char history_file_path[MAX_PATH_LENGTH];
+    // get_history_file_path(history_file_path);
+    // FILE* fp = fopen(history_file_path, "w"); // Open in "w" mode to clear it
+    // if (fp) {
+    //     fclose(fp); // Immediately close it, leaving it empty.
+    // }
 }
 
 static void execute_from_history(int index, char** prev_dir, const char* home_dir) {

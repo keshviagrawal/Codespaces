@@ -10,7 +10,7 @@
 #include <strings.h>
 #include "../include/reveal.h"
 
-// Comparison function for qsort to sort strings lexicographically (case-insensitive).
+// Comparison function for qsort to sort strings (case sensitive sorting as in ls)
 int compare_strings(const void* a, const void* b) {
     const char* str_a = *(const char**)a;
     const char* str_b = *(const char**)b;
