@@ -264,7 +264,10 @@ int main(int argc, char **argv) {
                 if (chat_mode) {
                     // Print to stdout
                     write(1, data, dlen);
-                } else {
+                    rcv_nxt += (uint32_t)dlen;
+                } 
+                
+                else {
                     if (!got_filename) {
                         // If filename not received in order, we can’t write file data yet; ignore content but ACK rcv_nxt (still expecting filename)
                     } else {

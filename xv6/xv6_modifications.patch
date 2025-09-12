@@ -1,0 +1,713 @@
+diff --git a/Makefile b/Makefile
+index 2d5f9e4..0a00649 100644
+--- a/Makefile
++++ b/Makefile
+@@ -73,6 +73,13 @@ CFLAGS += -fno-builtin-printf -fno-builtin-fprintf -fno-builtin-vprintf
+ CFLAGS += -I.
+ CFLAGS += $(shell $(CC) -fno-stack-protector -E -x c /dev/null >/dev/null 2>&1 && echo -fno-stack-protector)
+ 
++ifeq ($(SCHEDULER), FCFS)
++    CFLAGS += -DFCFS
++endif
++ifeq ($(SCHEDULER), CFS)
++    CFLAGS += -DCFS
++endif
++
+ # Disable PIE when possible (for Ubuntu 16.10 toolchain)
+ ifneq ($(shell $(CC) -dumpspecs 2>/dev/null | grep -e '[^f]no-pie'),)
+ CFLAGS += -fno-pie -no-pie
+@@ -142,6 +149,8 @@ UPROGS=\
+ 	$U/_logstress\
+ 	$U/_forphan\
+ 	$U/_dorphan\
++	$U/_readcount\
++    $U/_schedulertest\
+ 
+ fs.img: mkfs/mkfs README $(UPROGS)
+ 	mkfs/mkfs fs.img README $(UPROGS)
+diff --git a/kernel/defs.h b/kernel/defs.h
+index 122d9ca..ee7c2b9 100644
+--- a/kernel/defs.h
++++ b/kernel/defs.h
+@@ -181,5 +181,9 @@ void            virtio_disk_init(void);
+ void            virtio_disk_rw(struct buf *, int);
+ void            virtio_disk_intr(void);
+ 
++
++
++int             waitx(uint64, uint64, uint64);
++
+ // number of elements in fixed-size array
+ #define NELEM(x) (sizeof(x)/sizeof((x)[0]))
+diff --git a/kernel/file.c b/kernel/file.c
+index 8912b7e..2d31cdf 100644
+--- a/kernel/file.c
++++ b/kernel/file.c
+@@ -19,12 +19,20 @@ struct {
+   struct file file[NFILE];
+ } ftable;
+ 
++
++uint total_read_bytes;
++struct spinlock read_count_lock;
++
+ void
+ fileinit(void)
+ {
+   initlock(&ftable.lock, "ftable");
++  initlock(&read_count_lock, "read_count");
+ }
+ 
++
++
++
+ // Allocate a file structure.
+ struct file*
+ filealloc(void)
+@@ -126,6 +134,15 @@ fileread(struct file *f, uint64 addr, int n)
+     panic("fileread");
+   }
+ 
++
++
++  if(r > 0){
++    acquire(&read_count_lock);
++    total_read_bytes += r;
++    release(&read_count_lock);
++  }
++
++
+   return r;
+ }
+ 
+@@ -178,3 +195,16 @@ filewrite(struct file *f, uint64 addr, int n)
+   return ret;
+ }
+ 
++
++
++uint64
++sys_getreadcount(void)
++{
++  uint r;
++
++  acquire(&read_count_lock);
++  r = total_read_bytes;
++  release(&read_count_lock);
++  
++  return r;
++}
+\ No newline at end of file
+diff --git a/kernel/proc.c b/kernel/proc.c
+index 9d6cf3f..1dbe155 100644
+--- a/kernel/proc.c
++++ b/kernel/proc.c
+@@ -10,6 +10,8 @@ struct cpu cpus[NCPU];
+ 
+ struct proc proc[NPROC];
+ 
++extern uint ticks;    
++
+ struct proc *initproc;
+ 
+ int nextpid = 1;
+@@ -26,6 +28,18 @@ extern char trampoline[]; // trampoline.S
+ // must be acquired before any p->lock.
+ struct spinlock wait_lock;
+ 
++
++
++static const int weights[40] = {
++    88761, 71755, 56364, 46273, 36291, 29154, 23254, 18705, 14949, 11916,
++    9548,  7620,  6100,  4904,  3906,  3121,  2501,  1991,  1586,  1277,
++    1024,  820,   655,   526,   423,   335,   272,   215,   172,   137,
++    110,   87,    70,    56,    45,    36,    29,    23,    18,    15
++};
++
++
++
++
+ // Allocate a page for each process's kernel stack.
+ // Map it high in memory, followed by an invalid
+ // guard page.
+@@ -124,6 +138,15 @@ allocproc(void)
+ found:
+   p->pid = allocpid();
+   p->state = USED;
++  p->ctime = ticks;
++
++  p->nice = 0;
++  p->weight = weights[p->nice + 20];
++  p->vruntime = 0;
++  p->ticks_ran = 0;
++  p->etime = 0;
++  p->rtime = 0;
++  p->wtime = 0;
+ 
+   // Allocate a trapframe page.
+   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
+@@ -325,6 +348,8 @@ kexit(int status)
+ {
+   struct proc *p = myproc();
+ 
++  // printf("EXIT INFO -> PID: %d, Wait Time: %d, Run Time: %d\n", p->pid, p->wtime, p->rtime);
++
+   if(p == initproc)
+     panic("init exiting");
+ 
+@@ -362,8 +387,7 @@ kexit(int status)
+   panic("zombie exit");
+ }
+ 
+-// Wait for a child process to exit and return its pid.
+-// Return -1 if this process has no children.
++
+ int
+ kwait(uint64 addr)
+ {
+@@ -411,6 +435,70 @@ kwait(uint64 addr)
+   }
+ }
+ 
++
++// Add this correct waitx function to kernel/proc.c
++int
++waitx(uint64 addr, uint64 wtime_addr, uint64 rtime_addr)
++{
++  struct proc *pp;
++  int havekids, pid;
++  struct proc *p = myproc();
++
++  acquire(&wait_lock);
++
++  for(;;){
++    havekids = 0;
++    for(pp = proc; pp < &proc[NPROC]; pp++){
++      if(pp->parent == p){
++        acquire(&pp->lock);
++        havekids = 1;
++        if(pp->state == ZOMBIE){
++          pid = pp->pid;
++          // SAFELY copy out the times using copyout()
++          if(copyout(p->pagetable, wtime_addr, (char *)&pp->wtime, sizeof(pp->wtime)) < 0 ||
++             copyout(p->pagetable, rtime_addr, (char *)&pp->rtime, sizeof(pp->rtime)) < 0) {
++            release(&pp->lock);
++            release(&wait_lock);
++            return -1;
++          }
++          if(addr != 0 && copyout(p->pagetable, addr, (char *)&pp->xstate, sizeof(pp->xstate)) < 0) {
++            freeproc(pp);
++            release(&pp->lock);
++            release(&wait_lock);
++            return -1;
++          }
++          freeproc(pp);
++          release(&pp->lock);
++          release(&wait_lock);
++          return pid;
++        }
++        release(&pp->lock);
++      }
++    }
++    if(!havekids || killed(p)){
++      release(&wait_lock);
++      return -1;
++    }
++    sleep(p, &wait_lock);
++  }
++}
++
++
++// uint64
++// sys_waitx(void)
++// {
++//   uint64 addr, rtime_addr, wtime_addr;
++
++//   // Get the user-space addresses for the wtime and rtime pointers.
++//   // The argaddr function in this xv6 version does not return an error code.
++//   argaddr(0, &addr);
++//   argaddr(1, &wtime_addr);
++//   argaddr(2, &rtime_addr);
++
++//   // Call our new kernel function to do the real work.
++//   return kwaitx(addr, wtime_addr, rtime_addr);
++// }
++
+ // Per-CPU process scheduler.
+ // Each CPU calls scheduler() after setting itself up.
+ // Scheduler never returns.  It loops, doing:
+@@ -418,6 +506,53 @@ kwait(uint64 addr)
+ //  - swtch to start running that process.
+ //  - eventually that process transfers control
+ //    via swtch back to the scheduler.
++
++
++// void
++// scheduler(void)
++// {
++//   struct proc *p;
++//   struct cpu *c = mycpu();
++
++//   c->proc = 0;
++//   for(;;){
++//     // The most recent process to run may have had interrupts
++//     // turned off; enable them to avoid a deadlock if all
++//     // processes are waiting. Then turn them back off
++//     // to avoid a possible race between an interrupt
++//     // and wfi.
++//     intr_on();
++//     intr_off();
++
++//     int found = 0;
++//     for(p = proc; p < &proc[NPROC]; p++) {
++//       acquire(&p->lock);
++//       if(p->state == RUNNABLE) {
++//         // Switch to chosen process.  It is the process's job
++//         // to release its lock and then reacquire it
++//         // before jumping back to us.
++//         p->state = RUNNING;
++//         c->proc = p;
++//         swtch(&c->context, &p->context);
++
++//         // Process is done running for now.
++//         // It should have changed its p->state before coming back.
++//         c->proc = 0;
++//         found = 1;
++//       }
++//       release(&p->lock);
++//     }
++//     if(found == 0) {
++//       // nothing to run; stop running on this core until an interrupt.
++//       asm volatile("wfi");
++//     }
++//   }
++// }
++
++
++
++// Replace your old scheduler() function with this in kernel/proc.c
++
+ void
+ scheduler(void)
+ {
+@@ -426,39 +561,115 @@ scheduler(void)
+ 
+   c->proc = 0;
+   for(;;){
+-    // The most recent process to run may have had interrupts
+-    // turned off; enable them to avoid a deadlock if all
+-    // processes are waiting. Then turn them back off
+-    // to avoid a possible race between an interrupt
+-    // and wfi.
+     intr_on();
+     intr_off();
+ 
++#ifdef FCFS
++    // FCFS SCHEDULER
++    struct proc *earliest_proc = 0;
++
++    // Find the runnable process with the earliest creation time
++    for(p = proc; p < &proc[NPROC]; p++) {
++      acquire(&p->lock);
++      if(p->state == RUNNABLE) {
++        if (earliest_proc == 0 || p->ctime < earliest_proc->ctime) {
++          if(earliest_proc)
++            release(&earliest_proc->lock);
++          earliest_proc = p;
++          continue;
++        }
++      }
++      release(&p->lock);
++    }
++
++    if(earliest_proc){
++      earliest_proc->state = RUNNING;
++      c->proc = earliest_proc;
++      swtch(&c->context, &earliest_proc->context);
++      c->proc = 0;
++      release(&earliest_proc->lock);
++    } else {
++      asm volatile("wfi");
++    }
++
++// In scheduler() in kernel/proc.c
++#elif defined(CFS)
++    // CFS SCHEDULER
++    struct proc *min_vruntime_proc = 0;
++    int runnable = 0;
++
++    // --- LOGGING (for your report) ---
++    //
++    for(p = proc; p < &proc[NPROC]; p++){
++      acquire(&p->lock);
++      if(p->state == RUNNABLE){
++        runnable++;
++        if (runnable > 0) {
++          printf("[Scheduler Tick]\n");
++        }
++        printf("PID: %d | vRuntime: %lu\n", p->pid, p->vruntime);
++        release(&p->lock);
++      } else {
++        release(&p->lock);
++      }
++    }
++
++    if (runnable == 0){
++      asm volatile("wfi");
++    }
++
++    // Find the runnable process with the minimum vruntime.
++    for(p = proc; p < &proc[NPROC]; p++) {
++      acquire(&p->lock);
++      if(p->state == RUNNABLE) {
++        if (min_vruntime_proc == 0 || p->vruntime < min_vruntime_proc->vruntime) {
++          if(min_vruntime_proc)
++            release(&min_vruntime_proc->lock);
++          min_vruntime_proc = p;
++          continue;
++        }
++      }
++      release(&p->lock);
++    }
++
++    if(min_vruntime_proc){
++      printf("--> Scheduling PID %d (lowest vRuntime)\n\n", min_vruntime_proc->pid);
++      
++      min_vruntime_proc->state = RUNNING;
++      c->proc = min_vruntime_proc;
++      swtch(&c->context, &min_vruntime_proc->context);
++
++      c->proc = 0;
++      release(&min_vruntime_proc->lock);
++    } else {
++      asm volatile("wfi");
++    }
++
++
++
++#else
++    // DEFAULT ROUND ROBIN SCHEDULER
+     int found = 0;
+     for(p = proc; p < &proc[NPROC]; p++) {
+       acquire(&p->lock);
+       if(p->state == RUNNABLE) {
+-        // Switch to chosen process.  It is the process's job
+-        // to release its lock and then reacquire it
+-        // before jumping back to us.
+         p->state = RUNNING;
+         c->proc = p;
+         swtch(&c->context, &p->context);
+-
+-        // Process is done running for now.
+-        // It should have changed its p->state before coming back.
+         c->proc = 0;
+         found = 1;
+       }
+       release(&p->lock);
+     }
+     if(found == 0) {
+-      // nothing to run; stop running on this core until an interrupt.
+       asm volatile("wfi");
+     }
++#endif
+   }
+ }
+ 
++
++
+ // Switch to scheduler.  Must hold only p->lock
+ // and have changed proc->state. Saves and restores
+ // intena because intena is a property of this
+diff --git a/kernel/proc.h b/kernel/proc.h
+index d021857..8704e66 100644
+--- a/kernel/proc.h
++++ b/kernel/proc.h
+@@ -104,4 +104,15 @@ struct proc {
+   struct file *ofile[NOFILE];  // Open files
+   struct inode *cwd;           // Current directory
+   char name[16];               // Process name (debugging)
++
++  uint ctime;
++
++  int nice;
++  int weight;
++  uint64 vruntime;
++  int ticks_ran;
++  int rtime;
++  int wtime;
++  // int ctime;
++  int etime;
+ };
+diff --git a/kernel/syscall.c b/kernel/syscall.c
+index 076d965..c17db3e 100644
+--- a/kernel/syscall.c
++++ b/kernel/syscall.c
+@@ -7,6 +7,8 @@
+ #include "syscall.h"
+ #include "defs.h"
+ 
++extern uint64 sys_waitx(void);
++
+ // Fetch the uint64 at addr from the current process.
+ int
+ fetchaddr(uint64 addr, uint64 *ip)
+@@ -101,6 +103,7 @@ extern uint64 sys_unlink(void);
+ extern uint64 sys_link(void);
+ extern uint64 sys_mkdir(void);
+ extern uint64 sys_close(void);
++extern uint64 sys_getreadcount(void);
+ 
+ // An array mapping syscall numbers from syscall.h
+ // to the function that handles the system call.
+@@ -126,6 +129,8 @@ static uint64 (*syscalls[])(void) = {
+ [SYS_link]    sys_link,
+ [SYS_mkdir]   sys_mkdir,
+ [SYS_close]   sys_close,
++[SYS_getreadcount] sys_getreadcount,
++[SYS_waitx]        sys_waitx,
+ };
+ 
+ void
+diff --git a/kernel/syscall.h b/kernel/syscall.h
+index 3dd926d..30f3dc6 100644
+--- a/kernel/syscall.h
++++ b/kernel/syscall.h
+@@ -20,3 +20,5 @@
+ #define SYS_link   19
+ #define SYS_mkdir  20
+ #define SYS_close  21
++#define SYS_getreadcount 22
++#define SYS_waitx        23 
+\ No newline at end of file
+diff --git a/kernel/sysproc.c b/kernel/sysproc.c
+index 3044d00..5bf5421 100644
+--- a/kernel/sysproc.c
++++ b/kernel/sysproc.c
+@@ -36,6 +36,19 @@ sys_wait(void)
+   return kwait(p);
+ }
+ 
++uint64
++sys_waitx(void)
++{
++  uint64 addr, wtime_addr, rtime_addr;
++
++  // Correctly call argaddr three times without checking a return value.
++  argaddr(0, &addr);
++  argaddr(1, &wtime_addr);
++  argaddr(2, &rtime_addr);
++
++  return waitx(addr, wtime_addr, rtime_addr);
++}
++
+ uint64
+ sys_sbrk(void)
+ {
+diff --git a/kernel/trap.c b/kernel/trap.c
+index a41cd69..8bc8161 100644
+--- a/kernel/trap.c
++++ b/kernel/trap.c
+@@ -8,7 +8,8 @@
+ 
+ struct spinlock tickslock;
+ uint ticks;
+-
++ 
++extern struct proc proc[NPROC];
+ extern char trampoline[], uservec[];
+ 
+ // in kernelvec.S, calls kerneltrap().
+@@ -81,8 +82,55 @@ usertrap(void)
+     kexit(-1);
+ 
+   // give up the CPU if this is a timer interrupt.
+-  if(which_dev == 2)
++
++  // if(which_dev == 2)
++  //   yield();
++  if(which_dev == 2){
++
++    struct proc *p_iter;
++    for (p_iter = proc; p_iter < &proc[NPROC]; p_iter++) {
++      acquire(&p_iter->lock);
++      if (p_iter->state == RUNNING) {
++        p_iter->rtime++;
++      } else if (p_iter->state == RUNNABLE) {
++        p_iter->wtime++;
++      }
++      release(&p_iter->lock);
++    }
++
++  #ifdef CFS
++    if(p){ // ensure there is a running process
++      p->ticks_ran++;
++      int time_slice = 0;
++      int num_runnable = 0;
++      struct proc *proc_iter;
++
++      for(proc_iter = proc; proc_iter < &proc[NPROC]; proc_iter++){
++        if(proc_iter->state == RUNNABLE)
++          num_runnable++;
++      }
++      num_runnable++; // Account for the currently running process
++
++      if (num_runnable == 0)
++        num_runnable = 1; // avoid division by zero
++
++      time_slice = 48 / num_runnable; // target_latency / num_procs
++      if(time_slice < 3)
++        time_slice = 3;
++
++      if(p->ticks_ran >= time_slice){
++        p->vruntime += (p->ticks_ran * 1024) / p->weight;
++        p->ticks_ran = 0;
++        yield(); // Give up the CPU
++      }
++    }
++  #endif
++
++  #ifndef CFS
++    // For RR and FCFS, this yield causes preemption every tick.
+     yield();
++  #endif
++  }
+ 
+   prepare_return();
+ 
+diff --git a/user/readcount.c b/user/readcount.c
+new file mode 100644
+index 0000000..1824844
+--- /dev/null
++++ b/user/readcount.c
+@@ -0,0 +1,57 @@
++#include "kernel/types.h"
++#include "kernel/stat.h"
++#include "user/user.h"
++#include "kernel/fcntl.h"
++
++int
++main(int argc, char *argv[])
++{
++  int initial_count, final_count;
++  char buf[100];
++  int fd;
++  int read_bytes;
++
++  // 1. Get the initial read count
++  initial_count = getreadcount();
++  printf("Initial read count: %d\n", initial_count);
++
++  // 2. Create and write to a dummy file to ensure it exists
++  fd = open("dummy.txt", O_CREATE | O_WRONLY);
++  if(fd < 0){
++    printf("Error creating dummy file\n");
++    exit(1);
++  }
++  write(fd, "just some text to make sure the file is not empty........................................................................................................", 150);
++  close(fd);
++
++  // 3. Open and read 100 bytes from the dummy file
++  fd = open("dummy.txt", O_RDONLY);
++  if(fd < 0){
++    printf("Error opening dummy file for reading\n");
++    exit(1);
++  }
++
++  read_bytes = read(fd, buf, 100);
++  if(read_bytes < 0){
++    printf("Error reading from dummy file\n");
++    exit(1);
++  }
++  printf("Read %d bytes from dummy.txt\n", read_bytes);
++  close(fd);
++  
++  // 4. Get the final read count
++  final_count = getreadcount();
++  printf("Final read count: %d\n", final_count);
++
++  // 5. Verify the increase
++  if(final_count >= initial_count + 100) {
++    printf("SUCCESS: read count increased by at least 100!\n");
++  } else {
++    printf("FAILURE: read count did not increase as expected.\n");
++  }
++
++  // Clean up the dummy file
++  unlink("dummy.txt");
++
++  exit(0);
++}
+\ No newline at end of file
+diff --git a/user/schedulertest.c b/user/schedulertest.c
+new file mode 100644
+index 0000000..4b889d3
+--- /dev/null
++++ b/user/schedulertest.c
+@@ -0,0 +1,43 @@
++// In user/schedulertest.c
++
++#include "kernel/types.h"
++#include "kernel/stat.h"
++#include "user/user.h"
++
++#define NFORK 10
++#define IO 5
++
++int main() {
++  int n, pid;
++  int wtime, rtime;
++  int total_wtime = 0, total_rtime = 0;
++
++  for (n = 0; n < NFORK; n++) {
++    pid = fork();
++    if (pid < 0)
++      break;
++    if (pid == 0) { // Child process
++      if (n < IO) {
++        pause(200); // I/O-bound process using your pause() syscall
++      } else {
++        for (volatile int i = 0; i < 1000000000; i++) {} // CPU-bound process
++      }
++      exit(0);
++    }
++  }
++
++  // Parent process waits for all children
++  for (; n > 0; n--) {
++    // Use waitx to get the wait time and run time of each child
++    pid = waitx(0, &wtime, &rtime);
++    printf("PID: %d, Wait Time: %d, Run Time: %d\n", pid, wtime, rtime);
++    total_wtime += wtime;
++    total_rtime += rtime;
++  }
++
++  printf("\n--- Test Summary ---\n");
++  printf("Average Wait Time: %d\n", total_wtime / NFORK);
++  printf("Average Run Time: %d\n", total_rtime / NFORK);
++
++  exit(0);
++}
+\ No newline at end of file
+diff --git a/user/user.h b/user/user.h
+index ac84de9..6f1cb0e 100644
+--- a/user/user.h
++++ b/user/user.h
+@@ -24,6 +24,8 @@ int getpid(void);
+ char* sys_sbrk(int,int);
+ int pause(int);
+ int uptime(void);
++int getreadcount(void);
++int waitx(uint64, int*, int*);
+ 
+ // ulib.c
+ int stat(const char*, struct stat*);
+diff --git a/user/usys.pl b/user/usys.pl
+index c5d4c3a..576759d 100755
+--- a/user/usys.pl
++++ b/user/usys.pl
+@@ -42,3 +42,5 @@ entry("getpid");
+ entry("sbrk");
+ entry("pause");
+ entry("uptime");
++entry("getreadcount");
++entry("waitx");
